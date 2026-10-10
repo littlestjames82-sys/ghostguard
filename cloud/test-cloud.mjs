@@ -14,7 +14,9 @@
 // never a silent drop.
 import assert from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createHmac } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,8 +29,62 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "server.mjs");
 const KEY = "test-key-123";
 const KEY_B = "other-key-456"; // second workspace, for isolation checks
+const HOOK_SECRET = "test-hook-secret";
 const dir = mkdtempSync(join(tmpdir(), "ghostguard-cloud-"));
 const store = join(dir, "store.jsonl");
+
+// ── M3.2 fixtures ────────────────────────────────────────────────
+// A webhook receiver the test controls (raw body kept for HMAC
+// verification), and a scoped-keys config file: ws-scoped gets one
+// key per scope plus a rotation pair and a rate-limited reader;
+// ws-deadhook gets a webhook pointing at a dead port.
+const hookHits = [];
+const hookServer = createHttpServer((req, res) => {
+  let raw = "";
+  req.on("data", (c) => { raw += c; });
+  req.on("end", () => {
+    hookHits.push({ headers: req.headers, raw });
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("ok");
+  });
+});
+await new Promise((r) => hookServer.listen(0, "127.0.0.1", r));
+const hookUrl = `http://127.0.0.1:${hookServer.address().port}/hook`;
+
+const configPath = join(dir, "config.json");
+writeFileSync(configPath, JSON.stringify({
+  workspaces: {
+    "ws-hook": {
+      keys: [{ id: "main", key: "hook-key-12345" }],
+      webhook: { url: hookUrl, secret: HOOK_SECRET },
+    },
+    "ws-scoped": {
+      keys: [
+        { id: "agent", key: "scoped-ingest-key", scopes: ["ingest"] },
+        { id: "reader", key: "scoped-read-key", scopes: ["read"] },
+        { id: "human", key: "scoped-decide-key", scopes: ["decide"] },
+        { id: "ops", key: "scoped-admin-key", scopes: ["admin"] },
+        { id: "rot-a", key: "scoped-rot-a-key" },
+        { id: "rot-b", key: "scoped-rot-b-key" },
+        { id: "rl", key: "scoped-rl-key", scopes: ["read"], rateLimit: 3 },
+      ],
+    },
+    "ws-deadhook": {
+      keys: [{ id: "main", key: "deadhook-key-1" }],
+      webhook: { url: "http://127.0.0.1:1/hook", secret: "dead-secret" },
+    },
+  },
+}));
+
+const until = async (fn, timeoutMs = 4000) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await fn();
+    if (value) return value;
+    if (Date.now() > deadline) return null;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+};
 
 const record = (action_id, verdict, over = {}) => ({
   action_id,
@@ -90,6 +146,7 @@ let baseUrl;
 try {
   const booted = await bootServer({
     GHOSTGUARD_CLOUD_KEYS: `ws-test:${KEY},ws-other:${KEY_B}`,
+    GHOSTGUARD_CLOUD_CONFIG_FILE: configPath,
     GHOSTGUARD_CLOUD_PORT: "0",
     GHOSTGUARD_CLOUD_STORE: store,
   });
@@ -351,6 +408,220 @@ try {
   await garbled.text(); // drain
   ok("request hardening: oversized body → 413, malformed JSON → 400");
 
+  // ── M3.2: scoped keys ────────────────────────────────────────
+  // One key per scope in ws-scoped: each scope reaches exactly
+  // its own surface — everything else is a 403 with no data.
+  const INGEST = "scoped-ingest-key";
+  const READ = "scoped-read-key";
+  const DECIDE = "scoped-decide-key";
+  const ADMIN = "scoped-admin-key";
+  const scopedPost = await api(baseUrl, "/v1/records", {
+    key: INGEST,
+    method: "POST",
+    body: record("scoped_ask", "ask", { project_id: "proj-s" }),
+  });
+  assert.equal(scopedPost.status, 202, "ingest scope can post records");
+  assert.equal((await api(baseUrl, "/v1/records", { key: INGEST })).status, 403);
+  assert.equal((await api(baseUrl, "/v1/inbox", { key: READ })).json.pending.length, 1);
+  assert.equal(
+    (await api(baseUrl, "/v1/records", { key: READ, method: "POST", body: record("x1", "allow") })).status,
+    403,
+    "read scope cannot ingest",
+  );
+  assert.equal(
+    (await api(baseUrl, "/v1/inbox/scoped_ask/decision", { key: INGEST, method: "POST", body: { decision: "approve", approver: "a" } })).status,
+    403,
+    "ingest scope cannot decide",
+  );
+  assert.equal(
+    (await api(baseUrl, "/v1/records", { key: DECIDE })).status,
+    403,
+    "decide scope cannot read the trail",
+  );
+  const scopedDecision = await api(baseUrl, "/v1/inbox/scoped_ask/decision", {
+    key: DECIDE,
+    method: "POST",
+    body: { decision: "approve", approver: "sam" },
+  });
+  assert.equal(scopedDecision.status, 200, "decide scope can decide");
+  const forbidden = await api(baseUrl, "/v1/records", { key: INGEST });
+  assert.deepEqual(Object.keys(forbidden.json), ["error"], "a 403 body carries no data");
+  ok("scoped keys: ingest / read / decide each reach only their own surface (403 elsewhere)");
+
+  // Rotation: two full keys for one workspace are both live at
+  // once (that's what makes rotation without downtime possible);
+  // a key that is not configured is a plain 401 — the same body
+  // as a missing header, so the response is no oracle.
+  assert.equal((await api(baseUrl, "/v1/records", { key: "scoped-rot-a-key" })).status, 200);
+  assert.equal((await api(baseUrl, "/v1/records", { key: "scoped-rot-b-key" })).status, 200);
+  const unknownKey = await api(baseUrl, "/v1/records", { key: "scoped-rot-c-key" });
+  assert.equal(unknownKey.status, 401);
+  const noKeyRes = await fetch(`${baseUrl}/v1/records`);
+  assert.equal(noKeyRes.status, 401);
+  assert.deepEqual(await noKeyRes.json(), unknownKey.json, "missing and wrong keys are indistinguishable");
+  ok("key rotation: overlapping keys both authenticate; unknown/missing keys share one 401");
+
+  // Rate limit: the rl key allows 3 requests/minute — the 4th is
+  // a 429 carrying Retry-After.
+  for (let i = 0; i < 3; i++) {
+    assert.equal((await api(baseUrl, "/v1/records", { key: "scoped-rl-key" })).status, 200);
+  }
+  const limited = await fetch(`${baseUrl}/v1/records`, {
+    headers: { authorization: "Bearer scoped-rl-key" },
+  });
+  assert.equal(limited.status, 429, "the request past the per-key limit is refused");
+  assert.ok(Number(limited.headers.get("retry-after")) >= 1, "429 carries Retry-After");
+  await limited.text();
+  ok("per-key rate limiting: past the limit → 429 + Retry-After");
+
+  // Batch + field limits, on top of the 1 MB body cap.
+  const bigBatch = await api(baseUrl, "/v1/records", {
+    key: INGEST,
+    method: "POST",
+    body: Array.from({ length: 501 }, (_, i) => record(`bulk_${i}`, "allow")),
+  });
+  assert.equal(bigBatch.status, 400, "a batch over the max-records cap is refused");
+  const longId = await api(baseUrl, "/v1/records", {
+    key: INGEST,
+    method: "POST",
+    body: record("x".repeat(201), "allow"),
+  });
+  assert.equal(longId.status, 400, "an over-length action_id is refused");
+  const badVerdict = await api(baseUrl, "/v1/records", {
+    key: INGEST,
+    method: "POST",
+    body: record("act_badverdict", "maybe"),
+  });
+  assert.equal(badVerdict.status, 400, "an unknown verdict is refused");
+  const longApprover = await api(baseUrl, "/v1/inbox/scoped_ask/decision", {
+    key: DECIDE,
+    method: "POST",
+    body: { decision: "deny", approver: "a".repeat(101) },
+  });
+  assert.equal(longApprover.status, 400, "an over-length approver is refused");
+  const longQuery = await api(baseUrl, `/v1/records?q=${"q".repeat(201)}`, { key: READ });
+  assert.equal(longQuery.status, 400, "an over-length search query is refused");
+  ok("size limits: batch cap, id/verdict/approver/query validation all refuse with 400");
+
+  // Error hygiene: error bodies carry no stack trace, no store
+  // path, no key material; hardening headers are present.
+  const garbledRes = await fetch(`${baseUrl}/v1/records`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+    body: "{not json",
+  });
+  const garbledBody = await garbledRes.text();
+  assert.equal(garbledRes.status, 400);
+  assert.ok(!garbledBody.includes("node:"), "no stack frames in error bodies");
+  assert.ok(!garbledBody.includes(store), "no filesystem paths in error bodies");
+  assert.ok(!garbledBody.includes(KEY), "no key material in error bodies");
+  assert.equal(garbledRes.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(garbledRes.headers.get("cache-control"), "no-store");
+  const notFound = await api(baseUrl, "/v1/nope");
+  assert.deepEqual(notFound.json, { error: "not found" });
+  ok("error hygiene: stable safe messages, no stacks/paths/keys, nosniff + no-store headers");
+
+  // ── M3.2: decision webhooks (push) ───────────────────────────
+  // ws-hook has a webhook at the test receiver: deciding its ask
+  // POSTs the decision, HMAC-signed over the exact body bytes,
+  // and the delivery outcome is appended to the store.
+  const HOOK_KEY = "hook-key-12345";
+  const hookPost = await api(baseUrl, "/v1/records", {
+    key: HOOK_KEY,
+    method: "POST",
+    body: record("hook_ask", "ask", { project_id: "proj-h" }),
+  });
+  assert.equal(hookPost.json.stored, 1);
+  const hookDecide = await api(baseUrl, "/v1/inbox/hook_ask/decision", {
+    key: HOOK_KEY,
+    method: "POST",
+    body: { decision: "approve", approver: "ryan" },
+  });
+  assert.equal(hookDecide.status, 200);
+  const hit = await until(() => hookHits.find((h) => h.raw.includes("hook_ask")));
+  assert.ok(hit, "the webhook fired after the decision");
+  const expectedSig =
+    "sha256=" + createHmac("sha256", HOOK_SECRET).update(hit.raw, "utf8").digest("hex");
+  assert.equal(hit.headers["x-ghostguard-signature"], expectedSig, "webhook is HMAC-SHA256 signed");
+  const hookPayload = JSON.parse(hit.raw);
+  assert.equal(hookPayload.event, "decision");
+  assert.equal(hookPayload.decision, "approve");
+  assert.equal(hookPayload.workspace, "ws-hook");
+  const hookEntry = await until(() => {
+    const lines = readFileSync(store, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    return lines.find((e) => e.entry_type === "webhook" && e.workspace === "ws-hook");
+  });
+  assert.ok(hookEntry, "the delivery outcome is appended to the store");
+  assert.equal(hookEntry.ok, true);
+  assert.equal(hookEntry.status, 200);
+  ok("decision webhook: signed push lands, outcome recorded in the trail");
+
+  // A dead webhook endpoint never blocks or fails the decision —
+  // the failure is what's recorded instead.
+  const DEAD_KEY = "deadhook-key-1";
+  await api(baseUrl, "/v1/records", {
+    key: DEAD_KEY,
+    method: "POST",
+    body: record("dead_ask", "ask", { project_id: "proj-d" }),
+  });
+  const deadDecide = await api(baseUrl, "/v1/inbox/dead_ask/decision", {
+    key: DEAD_KEY,
+    method: "POST",
+    body: { decision: "deny", approver: "ryan" },
+  });
+  assert.equal(deadDecide.status, 200, "the decision succeeds despite the dead webhook");
+  const deadEntry = await until(() => {
+    const lines = readFileSync(store, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    return lines.find((e) => e.entry_type === "webhook" && e.workspace === "ws-deadhook");
+  });
+  assert.ok(deadEntry, "the failed delivery is recorded");
+  assert.equal(deadEntry.ok, false);
+  ok("webhook failure is recorded, never fatal: the decision still lands");
+
+  // ── M3.2: export + workspace delete ──────────────────────────
+  const exportRes = await fetch(`${baseUrl}/v1/export`, {
+    headers: { authorization: `Bearer ${KEY}` },
+  });
+  assert.equal(exportRes.status, 200);
+  assert.match(exportRes.headers.get("content-type") ?? "", /ndjson/);
+  const exportLines = (await exportRes.text()).trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(exportLines.length >= 8, "export carries the workspace's entries");
+  assert.ok(exportLines.every((e) => e.workspace === "ws-test"), "export is workspace-scoped");
+  assert.ok(exportLines.some((e) => e.entry_type === "decision"), "export includes decisions");
+  assert.equal(
+    (await fetch(`${baseUrl}/v1/export`, { headers: { authorization: `Bearer ${INGEST}` } })).status,
+    403,
+    "export requires the read scope",
+  );
+  ok("GET /v1/export returns exactly the caller's workspace trail as JSONL");
+
+  // Delete: read scope cannot; admin scope purges ONLY its own
+  // workspace and leaves a content-free tombstone behind.
+  const wsTestTotalBefore = (await api(baseUrl, "/v1/records")).json.total;
+  const deleteForbidden = await fetch(`${baseUrl}/v1/workspace`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${READ}` },
+  });
+  assert.equal(deleteForbidden.status, 403, "delete requires the admin scope");
+  await deleteForbidden.text();
+  const purge = await api(baseUrl, "/v1/workspace", { key: ADMIN, method: "DELETE" });
+  assert.equal(purge.status, 200);
+  assert.ok(purge.json.purged >= 2, "the scoped workspace's entries were purged");
+  assert.equal((await api(baseUrl, "/v1/records", { key: READ })).json.total, 0);
+  const scopedExport = await fetch(`${baseUrl}/v1/export`, {
+    headers: { authorization: `Bearer ${READ}` },
+  });
+  const scopedLines = (await scopedExport.text()).trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(scopedLines.length, 1, "only the tombstone remains");
+  assert.equal(scopedLines[0].entry_type, "purge");
+  assert.ok(!JSON.stringify(scopedLines).includes("scoped_ask"), "no purged content is retained");
+  assert.equal(
+    (await api(baseUrl, "/v1/records")).json.total,
+    wsTestTotalBefore,
+    "another workspace's trail is untouched by the purge",
+  );
+  ok("DELETE /v1/workspace: admin-only, own-workspace purge with a content-free tombstone");
+
   await cloud.close();
 
   // Failure mode: flush against a dead server rejects loudly and
@@ -364,7 +635,66 @@ try {
   ok("dead-server flush rejects and retains the queue — records are never dropped silently");
 } finally {
   try { child?.kill(); } catch { /* already gone */ }
+  try { hookServer.close(); } catch { /* already gone */ }
   rmSync(dir, { recursive: true, force: true });
 }
+
+// ── M3.2: retention + boot robustness (second boot) ──────────
+// A store seeded with an old entry, a recent entry, and one
+// corrupt line: with RETENTION_DAYS=30 the old entry is compacted
+// out at boot, the corrupt line is skipped, and the server still
+// boots and serves the recent entry.
+const dir2 = mkdtempSync(join(tmpdir(), "ghostguard-cloud-ret-"));
+const store2 = join(dir2, "store.jsonl");
+const entryLine = (actionId, receivedAt) =>
+  JSON.stringify({
+    entry_type: "record",
+    workspace: "ws-test",
+    received_at: receivedAt,
+    record: record(actionId, "allow"),
+  });
+writeFileSync(store2, [
+  entryLine("act_old", "2020-01-01T00:00:00.000Z"),
+  entryLine("act_recent", new Date().toISOString()),
+  "{corrupt line",
+].join("\n") + "\n");
+let child2;
+try {
+  const booted2 = await bootServer({
+    GHOSTGUARD_CLOUD_KEYS: `ws-test:${KEY}`,
+    GHOSTGUARD_CLOUD_PORT: "0",
+    GHOSTGUARD_CLOUD_STORE: store2,
+    GHOSTGUARD_CLOUD_RETENTION_DAYS: "30",
+  });
+  child2 = booted2.child;
+  const list2 = await api(booted2.baseUrl, "/v1/records");
+  assert.deepEqual(list2.json.records.map((r) => r.action_id), ["act_recent"]);
+  assert.ok(!readFileSync(store2, "utf8").includes("act_old"), "retention rewrote the store");
+  ok("retention: old entries compact out at boot; a corrupt line never stops the boot");
+} finally {
+  try { child2?.kill(); } catch { /* already gone */ }
+  rmSync(dir2, { recursive: true, force: true });
+}
+
+// An invalid port is a one-line startup error and exit 1 — never
+// a stack trace.
+const badPort = await new Promise((resolve) => {
+  const child = spawn("node", [serverPath], {
+    env: {
+      ...process.env,
+      GHOSTGUARD_CLOUD_KEYS: `ws-test:${KEY}`,
+      GHOSTGUARD_CLOUD_PORT: "abc",
+      GHOSTGUARD_CLOUD_STORE: join(dir2, "unused.jsonl"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let err = "";
+  child.stderr.on("data", (c) => { err += c; });
+  child.on("exit", (code) => resolve({ code, err }));
+});
+assert.notEqual(badPort.code, 0);
+assert.match(badPort.err, /not a valid port/);
+assert.ok(!badPort.err.includes("node:internal"), "startup errors carry no stack trace");
+ok("startup validation: an invalid port exits with one clean line, no stack");
 
 console.log(`\nCloud e2e: all ${passed} checks passed.`);

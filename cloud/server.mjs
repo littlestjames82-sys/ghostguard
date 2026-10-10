@@ -1,73 +1,203 @@
-// GhostGuard Cloud — M3 skeleton server (M3.1 improvements).
+// GhostGuard Cloud — M3 skeleton server (M3.1 + M3.2 / Phase C).
 //
 // Zero-dependency Node http server: a JSONL-backed hosted audit
 // store + approvals inbox behind the same gateway-record contract
 // as the core package (src/gateway.ts). This is a LOCAL SKELETON
 // for the future hosted layer — single node, one append-only JSONL
-// file per deployment, skeleton Bearer-key auth. It is not
-// deployed anywhere and the beta has not started. See README.md in
-// this folder for the API, the auth model, and the honest limits.
+// file per deployment. It is not deployed anywhere and the beta
+// has not started. See README.md in this folder for the API, the
+// auth model, and the honest limits, and BETA_RUNBOOK.md for how a
+// future deployment would be operated.
 //
 // M3.1: idempotent ingest (dedupe by workspace + action_id),
 // decision delivery (GET a decision, with long-poll `wait`),
 // full-text search + pagination over the trail, a reporting
 // endpoint, server-stamped received_at, and a 1 MB body cap.
 //
+// M3.2 (Phase C, beta-ready hardening):
+//   - Scoped keys with ids from an optional config file: multiple
+//     keys per workspace (rotation overlap), per-key scopes
+//     (ingest / read / decide / admin), revoke by removal.
+//   - Digest-compared auth: SHA-256 both sides, timingSafeEqual on
+//     digests — no key-length leak, no early exit.
+//   - Per-key rate limiting (429 + Retry-After) and a cap on
+//     concurrent long-poll waiters (503 past the cap).
+//   - Batch + field size limits on top of the body cap.
+//   - Error hygiene: responses never carry stack traces, internal
+//     paths, or key material; 500s are generic, detail goes to
+//     stderr only.
+//   - Decision webhooks (push): per-workspace URL + HMAC-SHA256
+//     signature, single attempt, outcome appended to the store,
+//     never blocks the decision.
+//   - GET /v1/export (workspace trail as JSONL) and
+//     DELETE /v1/workspace (admin scope; purge + tombstone).
+//   - Optional retention: GHOSTGUARD_CLOUD_RETENTION_DAYS compacts
+//     out older entries at boot.
+//   - Corrupt store lines are skipped with a stderr count instead
+//     of crashing the boot.
+//
 // Run:
 //   GHOSTGUARD_CLOUD_KEYS="myworkspace:my-secret-key" node cloud/server.mjs
 //
 // Environment:
-//   GHOSTGUARD_CLOUD_KEYS  comma-separated workspace:key pairs (required)
-//   GHOSTGUARD_CLOUD_PORT  listen port (default 8787; 0 = ephemeral)
-//   GHOSTGUARD_CLOUD_HOST  listen host (default 127.0.0.1)
-//   GHOSTGUARD_CLOUD_STORE JSONL store path (default ./store.jsonl
-//                          next to this file)
+//   GHOSTGUARD_CLOUD_KEYS        comma-separated workspace:key pairs
+//                                (legacy form; keys are full-scope)
+//   GHOSTGUARD_CLOUD_CONFIG_FILE JSON config file: scoped keys with
+//                                ids + per-workspace webhooks (see
+//                                config.example.json)
+//   GHOSTGUARD_CLOUD_PORT        listen port (default 8787; 0 = ephemeral)
+//   GHOSTGUARD_CLOUD_HOST        listen host (default 127.0.0.1)
+//   GHOSTGUARD_CLOUD_STORE       JSONL store path (default ./store.jsonl
+//                                next to this file)
+//   GHOSTGUARD_CLOUD_MAX_BODY_BYTES  request body cap (default 1048576)
+//   GHOSTGUARD_CLOUD_MAX_BATCH   max records per POST (default 500)
+//   GHOSTGUARD_CLOUD_RATE_LIMIT  requests/minute per key (default 600;
+//                                a config-file key may override)
+//   GHOSTGUARD_CLOUD_MAX_WAITERS max concurrent long-polls (default 1000)
+//   GHOSTGUARD_CLOUD_RETENTION_DAYS  drop entries older than N days at
+//                                boot (unset/0 = keep forever)
 
 import { createServer } from "node:http";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 // ── Config ────────────────────────────────────────────────────────
 
-function parseKeys(raw) {
-  const map = new Map(); // apiKey -> workspace
+const ALL_SCOPES = ["ingest", "read", "decide", "admin"];
+
+// Key table entries: { workspace, keyId, digest (Buffer, sha256 of
+// the key), scopes (Set), rateLimit (number|null), webhook }.
+// Keys themselves are held only long enough to digest at boot and
+// are never logged, echoed, or compared in raw form.
+const keyTable = [];
+const webhooks = new Map(); // workspace -> { url, secret }
+
+function addKey(workspace, key, keyId, scopes, rateLimit) {
+  if (typeof key !== "string" || key.length === 0) return;
+  if (key.length < 8) {
+    console.error(
+      `ghostguard-cloud: warning — key "${keyId}" for workspace "${workspace}" is shorter than 8 characters`,
+    );
+  }
+  keyTable.push({
+    workspace,
+    keyId,
+    digest: createHash("sha256").update(key, "utf8").digest(),
+    scopes: new Set(scopes && scopes.length ? scopes : ALL_SCOPES),
+    rateLimit: typeof rateLimit === "number" && rateLimit > 0 ? rateLimit : null,
+  });
+}
+
+function parseLegacyKeys(raw) {
   for (const pair of (raw ?? "").split(",")) {
     const trimmed = pair.trim();
     if (!trimmed) continue;
     const idx = trimmed.indexOf(":");
     if (idx <= 0) continue;
-    map.set(trimmed.slice(idx + 1), trimmed.slice(0, idx));
+    addKey(trimmed.slice(0, idx), trimmed.slice(idx + 1), "legacy", ALL_SCOPES, null);
   }
-  return map;
 }
 
-const apiKeys = parseKeys(process.env.GHOSTGUARD_CLOUD_KEYS);
+function loadConfigFile(path) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    console.error(`ghostguard-cloud: cannot read or parse config file ${path}`);
+    process.exit(1);
+  }
+  const workspaces = parsed?.workspaces ?? {};
+  for (const [workspace, cfg] of Object.entries(workspaces)) {
+    for (const k of cfg?.keys ?? []) {
+      addKey(workspace, k?.key, typeof k?.id === "string" ? k.id : "config", k?.scopes, k?.rateLimit);
+    }
+    if (cfg?.webhook?.url) {
+      webhooks.set(workspace, {
+        url: String(cfg.webhook.url),
+        secret: typeof cfg.webhook.secret === "string" ? cfg.webhook.secret : "",
+      });
+    }
+  }
+}
+
+parseLegacyKeys(process.env.GHOSTGUARD_CLOUD_KEYS);
+if (process.env.GHOSTGUARD_CLOUD_CONFIG_FILE) {
+  loadConfigFile(process.env.GHOSTGUARD_CLOUD_CONFIG_FILE);
+}
+
 const PORT = Number(process.env.GHOSTGUARD_CLOUD_PORT ?? 8787);
 const HOST = process.env.GHOSTGUARD_CLOUD_HOST ?? "127.0.0.1";
 const STORE_PATH = process.env.GHOSTGUARD_CLOUD_STORE ?? join(here, "store.jsonl");
+const MAX_BODY = Number(process.env.GHOSTGUARD_CLOUD_MAX_BODY_BYTES ?? 1024 * 1024);
+const MAX_BATCH = Number(process.env.GHOSTGUARD_CLOUD_MAX_BATCH ?? 500);
+const RATE_LIMIT = Number(process.env.GHOSTGUARD_CLOUD_RATE_LIMIT ?? 600);
+const MAX_WAITERS = Number(process.env.GHOSTGUARD_CLOUD_MAX_WAITERS ?? 1000);
+const RETENTION_DAYS = Number(process.env.GHOSTGUARD_CLOUD_RETENTION_DAYS ?? 0);
 
 // ── Store ─────────────────────────────────────────────────────────
-// Append-only JSONL. Two entry kinds, distinguished by entry_type:
+// Append-only JSONL. Entry kinds, distinguished by entry_type:
 //   { entry_type: "record",   workspace, received_at, record }
 //   { entry_type: "decision", workspace, decided_at, action_id,
 //     project_id, decision, approver }
-// History is never rewritten: a decision is a new line, and the
-// inbox is a VIEW (pending records minus decided action_ids),
-// computed on read.
+//   { entry_type: "webhook",  workspace, action_id, ok, status?,
+//     received_at }            — decision-push delivery outcome
+//   { entry_type: "purge",    workspace, purged, received_at }
+//                              — tombstone left by DELETE /v1/workspace
+// History is never rewritten by the API: a decision is a new line,
+// and the inbox is a VIEW (pending records minus decided
+// action_ids), computed on read. The two deliberate exceptions are
+// operator actions: a workspace purge (DELETE, admin scope) and
+// boot-time retention compaction — both rewrite the file and both
+// are logged; a purge leaves the tombstone above.
 
 function loadStore() {
   if (!existsSync(STORE_PATH)) return [];
-  return readFileSync(STORE_PATH, "utf8")
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line));
+  const out = [];
+  let corrupt = 0;
+  for (const line of readFileSync(STORE_PATH, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line));
+    } catch {
+      corrupt += 1;
+    }
+  }
+  if (corrupt > 0) {
+    console.error(`ghostguard-cloud: skipped ${corrupt} corrupt store line(s) at boot`);
+  }
+  return out;
 }
 
-const entries = loadStore();
+let entries = loadStore();
+
+function entryTime(e) {
+  const t = Date.parse(e.received_at ?? e.decided_at ?? "");
+  return Number.isNaN(t) ? null : t;
+}
+
+function compactStore() {
+  mkdirSync(dirname(STORE_PATH) || ".", { recursive: true });
+  writeFileSync(STORE_PATH, entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length ? "\n" : ""), "utf8");
+}
+
+if (RETENTION_DAYS > 0) {
+  const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const kept = entries.filter((e) => {
+    const t = entryTime(e);
+    return t === null || t >= cutoff;
+  });
+  if (kept.length !== entries.length) {
+    console.error(
+      `ghostguard-cloud: retention (${RETENTION_DAYS}d) compacted out ${entries.length - kept.length} entr${entries.length - kept.length === 1 ? "y" : "ies"} at boot`,
+    );
+    entries = kept;
+    compactStore();
+  }
+}
 
 function appendEntry(entry) {
   mkdirSync(dirname(STORE_PATH) || ".", { recursive: true });
@@ -150,6 +280,12 @@ function recordMatchesQuery(r, q) {
 
 const decisionWaiters = new Map(); // key -> Set<finish>
 
+function totalWaiters() {
+  let n = 0;
+  for (const set of decisionWaiters.values()) n += set.size;
+  return n;
+}
+
 function notifyDecision(workspace, actionId, entry) {
   const key = `${workspace} ${actionId}`;
   const set = decisionWaiters.get(key);
@@ -181,36 +317,108 @@ function waitForDecisionEntry(workspace, actionId, timeoutMs, res) {
   });
 }
 
-// ── Auth ──────────────────────────────────────────────────────────
-// Skeleton auth: a static Bearer key per workspace, supplied via
-// the environment. Keys are never logged and never echoed back.
+// ── Decision webhooks (push) ──────────────────────────────────────
+// When a workspace has a webhook configured, a decision append
+// fires one POST: the public decision JSON, signed with
+// HMAC-SHA256 (hex) over the exact body bytes in the
+// `x-ghostguard-signature` header (`sha256=<hex>`). Single
+// attempt, 5s timeout, fire-and-forget: the outcome is appended
+// to the store as a webhook entry — the decision itself never
+// waits on, or fails because of, a webhook.
 
-function workspaceForKey(key) {
-  if (!key) return null;
-  const candidate = Buffer.from(key);
-  for (const [known, workspace] of apiKeys) {
-    const knownBuf = Buffer.from(known);
-    if (knownBuf.length === candidate.length && timingSafeEqual(knownBuf, candidate)) {
-      return workspace;
+function fireDecisionWebhook(workspace, entry) {
+  const hook = webhooks.get(workspace);
+  if (!hook) return;
+  const body = JSON.stringify({ event: "decision", ...publicDecision(entry) });
+  const signature = "sha256=" + createHmac("sha256", hook.secret).update(body, "utf8").digest("hex");
+  const stamp = () => new Date().toISOString();
+  (async () => {
+    let ok = false;
+    let status = null;
+    try {
+      const res = await fetch(hook.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-ghostguard-signature": signature },
+        body,
+        signal: AbortSignal.timeout(5000),
+      });
+      status = res.status;
+      ok = res.ok;
+      await res.text().catch(() => "");
+    } catch {
+      ok = false;
     }
-  }
-  return null;
+    appendEntry({
+      entry_type: "webhook",
+      workspace,
+      action_id: entry.action_id,
+      ok,
+      status,
+      received_at: stamp(),
+    });
+  })().catch(() => {
+    // The webhook outcome could not even be recorded (store write
+    // failed). Nothing safe left to do but say so on stderr.
+    console.error(`ghostguard-cloud: webhook outcome for ${workspace} could not be recorded`);
+  });
 }
 
-function authWorkspace(req) {
+// ── Auth ──────────────────────────────────────────────────────────
+// Bearer keys, supplied via the environment (legacy form) or the
+// config file (scoped form). Comparison digests both sides with
+// SHA-256 and uses timingSafeEqual on the digests: constant-time
+// for every candidate, and no key-length information leaks. Keys
+// are never logged and never echoed back.
+
+function authForKey(key) {
+  if (!key) return null;
+  const candidate = createHash("sha256").update(key, "utf8").digest();
+  let found = null;
+  for (const entry of keyTable) {
+    if (timingSafeEqual(entry.digest, candidate)) found = entry;
+  }
+  return found;
+}
+
+function authRequest(req) {
   const header = req.headers.authorization ?? "";
   const match = /^Bearer\s+(.+)$/.exec(header);
-  return match ? workspaceForKey(match[1]) : null;
+  return match ? authForKey(match[1]) : null;
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────
+// Sliding 60-second window per key (workspace + key id). The limit
+// is the key's own override from the config file when present,
+// else GHOSTGUARD_CLOUD_RATE_LIMIT. /health is exempt.
+
+const rateBuckets = new Map(); // authId -> number[] (timestamps)
+
+function rateLimited(auth) {
+  const limit = auth.rateLimit ?? RATE_LIMIT;
+  if (!Number.isFinite(limit) || limit <= 0) return 0;
+  const id = `${auth.workspace} ${auth.keyId}`;
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const stamps = (rateBuckets.get(id) ?? []).filter((t) => t > windowStart);
+  if (stamps.length >= limit) {
+    rateBuckets.set(id, stamps);
+    return Math.max(1, Math.ceil((stamps[0] + 60_000 - now) / 1000));
+  }
+  stamps.push(now);
+  rateBuckets.set(id, stamps);
+  return 0;
 }
 
 // ── HTTP plumbing ─────────────────────────────────────────────────
 
-const MAX_BODY = 1 * 1024 * 1024; // 1 MB request-body cap
-
-function sendJson(res, status, body) {
-  const text = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(text);
+function sendJson(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store",
+    ...extraHeaders,
+  });
+  res.end(JSON.stringify(body));
 }
 
 function readBody(req) {
@@ -240,6 +448,20 @@ function readBody(req) {
   });
 }
 
+async function readJsonBody(req) {
+  const raw = await readBody(req);
+  try {
+    return JSON.parse(raw || "null");
+  } catch {
+    throw Object.assign(new Error("malformed JSON"), { status: 400 });
+  }
+}
+
+const VERDICTS = new Set(["allow", "pre_approved", "ask", "hand_off", "deny"]);
+const MAX_ID_LEN = 200;
+const MAX_APPROVER_LEN = 100;
+const MAX_QUERY_LEN = 200;
+
 function validateRecord(r, index) {
   if (r === null || typeof r !== "object" || Array.isArray(r)) {
     return `records[${index}] is not an object`;
@@ -248,6 +470,12 @@ function validateRecord(r, index) {
     if (typeof r[field] !== "string" || r[field].length === 0) {
       return `records[${index}].${field} must be a non-empty string`;
     }
+    if (r[field].length > MAX_ID_LEN) {
+      return `records[${index}].${field} exceeds ${MAX_ID_LEN} characters`;
+    }
+  }
+  if (!VERDICTS.has(r.verdict)) {
+    return `records[${index}].verdict is not a known verdict`;
   }
   return null;
 }
@@ -276,7 +504,7 @@ const INBOX_HTML = `<!doctype html>
 </head>
 <body>
 <h1>GhostGuard Cloud — Approvals Inbox</h1>
-<p class="meta">M3 skeleton. Pending <code>ask</code> / <code>hand_off</code> records
+<p class="meta">Local skeleton. Pending <code>ask</code> / <code>hand_off</code> records
 for your workspace. Decisions are appended to the audit store — history is never rewritten.</p>
 <div class="bar">
   <input id="key" type="password" placeholder="API key" size="36">
@@ -365,20 +593,40 @@ const server = createServer(async (req, res) => {
     const path = url.pathname;
 
     if (req.method === "GET" && path === "/health") {
-      return sendJson(res, 200, { ok: true, service: "ghostguard-cloud", milestone: "M3.1" });
+      return sendJson(res, 200, { ok: true, service: "ghostguard-cloud", milestone: "M3.2" });
     }
     if (req.method === "GET" && path === "/") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      });
       return res.end(INBOX_HTML);
     }
 
-    // Everything below requires a valid workspace key.
-    const workspace = authWorkspace(req);
-    if (!workspace) return sendJson(res, 401, { error: "unauthorized" });
+    // Everything below requires a valid workspace key. Missing
+    // and wrong keys get the identical 401 — no oracle.
+    const auth = authRequest(req);
+    if (!auth) return sendJson(res, 401, { error: "unauthorized" });
+    const workspace = auth.workspace;
+
+    const retryAfter = rateLimited(auth);
+    if (retryAfter > 0) {
+      return sendJson(res, 429, { error: "rate limited" }, { "retry-after": String(retryAfter) });
+    }
+
+    const requireScope = (scope) => {
+      if (auth.scopes.has(scope)) return true;
+      sendJson(res, 403, { error: "forbidden" });
+      return false;
+    };
 
     if (req.method === "POST" && path === "/v1/records") {
-      const body = JSON.parse((await readBody(req)) || "null");
+      if (!requireScope("ingest")) return;
+      const body = await readJsonBody(req);
       const records = Array.isArray(body) ? body : [body];
+      if (records.length > MAX_BATCH) {
+        return sendJson(res, 400, { error: `batch exceeds ${MAX_BATCH} records` });
+      }
       for (let i = 0; i < records.length; i++) {
         const problem = validateRecord(records[i], i);
         if (problem) return sendJson(res, 400, { error: problem });
@@ -412,9 +660,13 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && path === "/v1/records") {
+      if (!requireScope("read")) return;
       const projectId = url.searchParams.get("project_id");
       const verdict = url.searchParams.get("verdict");
       const q = url.searchParams.get("q");
+      if (q && q.length > MAX_QUERY_LEN) {
+        return sendJson(res, 400, { error: `q exceeds ${MAX_QUERY_LEN} characters` });
+      }
       const parsedLimit = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
       const limit =
         Number.isFinite(parsedLimit) && parsedLimit >= 0 ? Math.min(parsedLimit, 1000) : 100;
@@ -435,6 +687,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && path === "/v1/report") {
+      if (!requireScope("read")) return;
       const projectId = url.searchParams.get("project_id");
       const decided = decidedActionIds(workspace);
       const recs = entries.filter(
@@ -463,8 +716,12 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && path === "/v1/inbox") {
+      if (!requireScope("read")) return;
       const decided = decidedActionIds(workspace);
       const q = url.searchParams.get("q");
+      if (q && q.length > MAX_QUERY_LEN) {
+        return sendJson(res, 400, { error: `q exceeds ${MAX_QUERY_LEN} characters` });
+      }
       const pending = entries
         .filter((e) => e.workspace === workspace && isPending(e, decided))
         .filter((e) => !q || recordMatchesQuery(e.record, q))
@@ -472,8 +729,56 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, { pending });
     }
 
+    if (req.method === "GET" && path === "/v1/export") {
+      if (!requireScope("read")) return;
+      // The workspace's raw trail (every entry kind, as stored),
+      // JSONL — the export format is the store format.
+      const lines = entries
+        .filter((e) => e.workspace === workspace)
+        .map((e) => JSON.stringify(e));
+      res.writeHead(200, {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "content-disposition": `attachment; filename="ghostguard-${workspace}-export.jsonl"`,
+        "x-content-type-options": "nosniff",
+        "cache-control": "no-store",
+      });
+      return res.end(lines.length ? lines.join("\n") + "\n" : "");
+    }
+
+    if (req.method === "DELETE" && path === "/v1/workspace") {
+      if (!requireScope("admin")) return;
+      // Operator action: purge ONLY the caller's own workspace
+      // (the workspace comes from the key, never from input).
+      // Rewrites the store without that workspace's entries and
+      // leaves a content-free tombstone, so the trail itself shows
+      // that a purge happened — and how much went — with none of
+      // the purged content retained.
+      const purged = entries.filter((e) => e.workspace === workspace).length;
+      entries = entries.filter((e) => e.workspace !== workspace);
+      for (const id of [...recordIndex]) {
+        if (id.startsWith(`${workspace} `)) recordIndex.delete(id);
+      }
+      for (const key of [...decisionWaiters.keys()]) {
+        if (key.startsWith(`${workspace} `)) {
+          const set = decisionWaiters.get(key);
+          decisionWaiters.delete(key);
+          for (const finish of set) finish(null);
+        }
+      }
+      compactStore();
+      appendEntry({
+        entry_type: "purge",
+        workspace,
+        purged,
+        received_at: new Date().toISOString(),
+      });
+      console.error(`ghostguard-cloud: workspace "${workspace}" purged ${purged} entries (DELETE /v1/workspace)`);
+      return sendJson(res, 200, { purged, workspace });
+    }
+
     const decisionMatch = /^\/v1\/inbox\/([^/]+)\/decision$/.exec(path);
     if (req.method === "GET" && decisionMatch) {
+      if (!requireScope("read")) return;
       const actionId = decodeURIComponent(decisionMatch[1]);
       let entry = decisionFor(workspace, actionId);
       if (!entry) {
@@ -484,6 +789,9 @@ const server = createServer(async (req, res) => {
           ? Math.min(30, Math.max(0, waitSec)) * 1000
           : 0;
         if (waitMs > 0) {
+          if (totalWaiters() >= MAX_WAITERS) {
+            return sendJson(res, 503, { error: "too many waiting requests" });
+          }
           entry = await waitForDecisionEntry(workspace, actionId, waitMs, res);
           // A decision that landed exactly as the wait elapsed
           // is still a decision — re-check before saying 404.
@@ -497,13 +805,18 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && decisionMatch) {
+      if (!requireScope("decide")) return;
       const actionId = decodeURIComponent(decisionMatch[1]);
-      const body = JSON.parse((await readBody(req)) || "null");
+      const body = await readJsonBody(req);
       if (body?.decision !== "approve" && body?.decision !== "deny") {
         return sendJson(res, 400, { error: 'decision must be "approve" or "deny"' });
       }
-      if (typeof body?.approver !== "string" || body.approver.length === 0) {
-        return sendJson(res, 400, { error: "approver must be a non-empty string" });
+      if (
+        typeof body?.approver !== "string" ||
+        body.approver.length === 0 ||
+        body.approver.length > MAX_APPROVER_LEN
+      ) {
+        return sendJson(res, 400, { error: `approver must be a string of 1–${MAX_APPROVER_LEN} characters` });
       }
       const decided = decidedActionIds(workspace);
       const target = entries.find(
@@ -525,6 +838,9 @@ const server = createServer(async (req, res) => {
       // Wake any long-poll waiters — this is how the human's
       // decision actually reaches the agent that asked.
       notifyDecision(workspace, actionId, entry);
+      // Push the decision to the workspace's webhook, if any.
+      // Fire-and-forget: delivery never delays or fails this.
+      fireDecisionWebhook(workspace, entry);
       return sendJson(res, 200, {
         action_id: actionId,
         decision: body.decision,
@@ -536,21 +852,36 @@ const server = createServer(async (req, res) => {
 
     return sendJson(res, 404, { error: "not found" });
   } catch (err) {
-    const status = err?.status ?? (err instanceof SyntaxError ? 400 : 500);
-    return sendJson(res, status, { error: String(err?.message ?? err) });
+    // Error hygiene: the client gets a stable, safe message. Our
+    // own 4xx errors carry their message; anything unexpected is
+    // a generic 500 and the detail goes to stderr only — never a
+    // stack trace, a filesystem path, or key material in a body.
+    const status = typeof err?.status === "number" ? err.status : 500;
+    if (status >= 500) {
+      console.error(`ghostguard-cloud: internal error: ${err?.message ?? err}`);
+      return sendJson(res, 500, { error: "internal error" });
+    }
+    return sendJson(res, status, { error: String(err?.message ?? "bad request") });
   }
 });
 
 // Only listen when run directly (`node cloud/server.mjs`), so tests
 // can import nothing and spawn it as a child process.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (apiKeys.size === 0) {
-    console.error("GHOSTGUARD_CLOUD_KEYS is empty — set workspace:key pairs before starting.");
+  if (keyTable.length === 0) {
+    console.error(
+      "ghostguard-cloud: no API keys configured — set GHOSTGUARD_CLOUD_KEYS or GHOSTGUARD_CLOUD_CONFIG_FILE before starting.",
+    );
+    process.exit(1);
+  }
+  if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
+    console.error(`ghostguard-cloud: GHOSTGUARD_CLOUD_PORT is not a valid port: ${process.env.GHOSTGUARD_CLOUD_PORT}`);
     process.exit(1);
   }
   server.listen(PORT, HOST, () => {
     const addr = server.address();
-    console.log(`ghostguard-cloud listening on http://${HOST}:${addr.port} (store: ${STORE_PATH}, workspaces: ${apiKeys.size})`);
+    const workspaces = new Set(keyTable.map((k) => k.workspace)).size;
+    console.log(`ghostguard-cloud listening on http://${HOST}:${addr.port} (store: ${STORE_PATH}, workspaces: ${workspaces})`);
   });
 }
 
