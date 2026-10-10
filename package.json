@@ -1,0 +1,53 @@
+{
+  "description": "GhostGuard \u2014 record-first gateway, fail-closed policy, approvals and audit for any agent. By Ghost Developer Studio.",
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "cloud",
+    "docs",
+    "examples"
+  ],
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "name": "ghostguard",
+  "private": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "example:browser": "tsx examples/browser-classifier.ts",
+    "example:cli": "tsx examples/guarded-cli.ts",
+    "test": "tsx test/run.ts",
+    "test:build": "node test/build-smoke.mjs",
+    "test:cloud": "npm run build && node cloud/test-cloud.mjs",
+    "test:conformance": "tsx conformance/run.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run build && npm run typecheck && npm test && npm run test:build && npm run test:conformance && npm run test:cloud"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard#readme"
+}
