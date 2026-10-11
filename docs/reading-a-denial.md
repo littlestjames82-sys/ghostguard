@@ -80,6 +80,22 @@ run (a routine) had an agent propose a purchase; the policy carried a
   deny is the safe answer. (A broken *permissive* rule does the
   opposite: it is inert — it grants nothing and blocks nothing.)
 
+## Denial triage checklist for operators
+
+When the record shows a denial, triage in this order:
+
+1. Check `rule_id` and `reason` — this tells you exactly which rule
+  decided and whether the rule is missing, broken, or intentional.
+2. Check `initiator` and `actor` — a routine-initiated action often
+  needs stricter rules than a person-initiated one.
+3. Check `permission_class` — a bad classification can make an allowed
+  action appear denied or vice versa.
+4. Check the rule for the `handoff_to` or expression issue if the
+  policy is malformed; these are immediate authoring defects.
+5. If the rule is valid and intentional, treat the denial as the correct
+  safety outcome and inspect the upstream request path instead of
+  relaxing policy.
+
 And the corollary for `ask` records: an `ask` is not a denial. The
 action hasn't run *yet*; the record's payload is waiting for a human
 decision, and if the human approves, the approval is carried into a

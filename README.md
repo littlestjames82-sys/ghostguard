@@ -118,6 +118,59 @@ if (record.verdict === "allow" || record.verdict === "pre_approved") {
 
 This is the default contract for real deployments: no record, no action.
 
+### Release checklist for package consumers
+
+Before shipping a policy to production, confirm all of the following:
+
+- Validate the policy document with `compileValidatedPolicy(policyDoc)` or `assertPolicyValid(policyDoc)` in CI and pre-deploy checks.
+- Treat all diagnostic errors as blockers: duplicate IDs, invalid expressions, missing `handoff_to`, and malformed policy documents.
+- Review warnings deliberately: a permissive `allow` rule like `when: "true"` is not automatically fatal, but it is exactly the kind of rule that can hide a bad default.
+- Keep the team-layer locked rules separate from the editable overlay; overlay policies should never replace a locked deny/ask/hand_off rule.
+- Keep the fail-closed ordering intact: `deny > hand_off > ask > pre_approved > allow`.
+
+### Migration: `compilePolicy()` to `compileValidatedPolicy()`
+
+If you are upgrading from the low-level compiler, move to the validated entry point before evaluation:
+
+```ts
+import { compilePolicy, compileValidatedPolicy } from "ghostguard";
+
+const unsafe = compilePolicy({ rules: [
+  { id: "allow-some", effect: "allow", when: "true" },
+] });
+
+const safe = compileValidatedPolicy({ rules: [
+  { id: "allow-some", effect: "allow", when: "true" },
+] }, { throwOnWarning: false });
+```
+
+The difference is not in the engine semantics — the fail-closed core remains the same — but in the authoring guardrails. The validated path surfaces malformed expressions, duplicate IDs, and missing `handoff_to` values up front instead of silently letting an invalid policy ship.
+
+What breaks if you skip validation?
+
+```ts
+const bad = compilePolicy({ rules: [
+  { id: "route-email", effect: "hand_off", when: "permission_class == 'COMMUNICATE'" },
+  { id: "broken", effect: "ask", when: "kind ==" },
+] });
+```
+
+This policy is unsafe even though the compiler may still produce a compiled object. The first rule has no `handoff_to` target, and the second rule's expression is syntactically invalid. A validated build would fail fast before the action path ever reached runtime.
+
+### Operator denial triage
+
+When an action is refused, the fastest workflow is:
+
+1. Read the `rule_id` and `reason` from the record.
+2. Find the exact rule in the policy document and check whether it is a locked base rule or an editable overlay.
+3. Confirm the `initiator`, `actor`, and `permission_class` match the actual runtime context.
+4. If the rule is malformed or missing a `handoff_to`, fix the policy and redeploy with validation enabled.
+5. If the rule is intentional, treat the denial as the correct outcome and investigate the request path, not the engine.
+
+Hit a denial and want to know exactly why? Read
+[`docs/reading-a-denial.md`](docs/reading-a-denial.md) — it walks one
+real record field by field.
+
 ### Policy authoring checklist
 
 - Keep the `deny > hand_off > ask > pre_approved > allow` ordering intact.
@@ -125,10 +178,6 @@ This is the default contract for real deployments: no record, no action.
 - Treat duplicate IDs, invalid expressions, and missing handoff targets as errors.
 - Treat `when: "true"` allow rules as warnings unless you intentionally want a permissive default.
 - Keep locked rules for the team layer and overlay only editable policy.
-
-Hit a denial and want to know exactly why? Read
-[`docs/reading-a-denial.md`](docs/reading-a-denial.md) — it walks one
-real record field by field.
 
 ## How an agent integrates
 
