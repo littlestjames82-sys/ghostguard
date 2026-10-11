@@ -24,7 +24,7 @@ import { mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  compilePolicy, evaluatePolicy, gatewayRecordFromDecision,
+  compileValidatedPolicy, evaluatePolicy, gatewayRecordFromDecision,
   createJsonlRecorder, readGatewayRecords,
   type GatewayIntent, type PermissionClass, type PolicyContext,
 } from "../src/index.js";
@@ -39,7 +39,7 @@ const recorder = createJsonlRecorder(AUDIT);
 // carried human approval satisfies them — which is exactly the
 // re-evaluation the ask flow below performs. The deny is `locked`:
 // it is the layer an editable overlay could never weaken.
-const policy = compilePolicy({ rules: [
+const policy = compileValidatedPolicy({ rules: [
   { id: "no-spend-ever", effect: "deny", locked: true,
     when: "permission_class == 'SPEND'" },
   { id: "docs-are-pre-approved", effect: "pre_approved",

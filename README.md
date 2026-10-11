@@ -100,13 +100,13 @@ Use the same path in every integration:
 5. Only then execute the effect, and only if the verdict is `allow` or `pre_approved`.
 
 ```ts
-const compiled = compilePolicy(policyDoc);
-for (const d of compiled.diagnostics) {
+const policy = compileValidatedPolicy(policyDoc, { throwOnWarning: false });
+for (const d of policy.diagnostics) {
   if (d.level === "error") throw new Error(d.message);
   console.warn(d.message);
 }
 
-const decision = evaluatePolicy(compiled, context);
+const decision = evaluatePolicy(policy, context);
 const record = gatewayRecordFromDecision(intent, decision);
 jsonlRecorder(record);
 await cloudRecorder.flush();
@@ -117,6 +117,14 @@ if (record.verdict === "allow" || record.verdict === "pre_approved") {
 ```
 
 This is the default contract for real deployments: no record, no action.
+
+### Policy authoring checklist
+
+- Keep the `deny > hand_off > ask > pre_approved > allow` ordering intact.
+- Prefer validated compilation: `compileValidatedPolicy(policyDoc)` before evaluation.
+- Treat duplicate IDs, invalid expressions, and missing handoff targets as errors.
+- Treat `when: "true"` allow rules as warnings unless you intentionally want a permissive default.
+- Keep locked rules for the team layer and overlay only editable policy.
 
 Hit a denial and want to know exactly why? Read
 [`docs/reading-a-denial.md`](docs/reading-a-denial.md) — it walks one

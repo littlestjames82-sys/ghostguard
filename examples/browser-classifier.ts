@@ -33,7 +33,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  compilePolicy, evaluatePolicy, defaultKernelPolicy, mergePolicyDocs,
+  compileValidatedPolicy, evaluatePolicy, defaultKernelPolicy, mergePolicyDocs,
   gatewayRecordFromDecision, createJsonlRecorder, readGatewayRecords,
   type PermissionClass, type PolicyDecision,
 } from "../src/index.js";
@@ -70,7 +70,7 @@ function classify(kind: string): PermissionClass | null {
 
 // Default policy + one overlay rule (merged, not edited in place):
 // submit clicks ask unless the run carries an approval.
-const policy = compilePolicy(mergePolicyDocs(defaultKernelPolicy(), { rules: [
+const policy = compileValidatedPolicy(mergePolicyDocs(defaultKernelPolicy(), { rules: [
   { id: "submit-clicks-ask-unapproved", effect: "ask",
     when: "kind == 'browser.submit_click' && !approved" },
 ] }));
