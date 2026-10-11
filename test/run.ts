@@ -15,7 +15,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  compilePolicy, evaluatePolicy, defaultKernelPolicy, mergePolicyDocs, validatePolicyDoc, type PolicyContext,
+  assertPolicyValid,
+  compilePolicy,
+  evaluatePolicy,
+  defaultKernelPolicy,
+  mergePolicyDocs,
+  validatePolicyDoc,
+  type PolicyContext,
 } from "../src/policy.js";
 import { gatewayRecordFromDecision, type GatewayRecord } from "../src/gateway.js";
 import { createJsonlRecorder, readGatewayRecords } from "../src/recorder.js";
@@ -46,6 +52,8 @@ const r2ctx = (over: Partial<PolicyContext>): PolicyContext => ({
   assert(codes.includes("missing-handoff-target"));
   assert(codes.includes("empty-rule-expression"));
   assert(codes.includes("allow-all"));
+  assert.throws(() => assertPolicyValid({ rules: [{ id: "bad", effect: "ask", when: "kind ==" }] }), /invalid policy document/i);
+  assert.doesNotThrow(() => assertPolicyValid({ rules: [{ id: "ok", effect: "allow", when: "permission_class == 'READ'" }] }));
   ok("Policy validation: duplicate IDs, malformed rules, and permissive defaults are surfaced as diagnostics");
 }
 

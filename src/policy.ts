@@ -230,6 +230,30 @@ export function validatePolicyDoc(doc: PolicyDoc): PolicyDiagnostic[] {
   return diagnostics;
 }
 
+export interface AssertPolicyValidOptions {
+  throwOnWarning?: boolean;
+}
+
+export function assertPolicyValid(doc: PolicyDoc, options: AssertPolicyValidOptions = {}): PolicyDiagnostic[] {
+  const diagnostics = validatePolicyDoc(doc);
+  const errors = diagnostics.filter((d) => d.level === "error");
+  const warnings = diagnostics.filter((d) => d.level === "warning");
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Invalid policy document: ${errors.map((d) => d.message).join("; ")}`,
+    );
+  }
+
+  if (options.throwOnWarning && warnings.length > 0) {
+    throw new Error(
+      `Policy validation warnings: ${warnings.map((d) => d.message).join("; ")}`,
+    );
+  }
+
+  return diagnostics;
+}
+
 export interface PolicyContext {
   kind: string;
   permission_class: PermissionClass | null;

@@ -113,6 +113,10 @@ export interface PolicyDiagnostic {
     rule_id?: string | null;
 }
 export declare function validatePolicyDoc(doc: PolicyDoc): PolicyDiagnostic[];
+export interface AssertPolicyValidOptions {
+    throwOnWarning?: boolean;
+}
+export declare function assertPolicyValid(doc: PolicyDoc, options?: AssertPolicyValidOptions): PolicyDiagnostic[];
 export interface PolicyContext {
     kind: string;
     permission_class: PermissionClass | null;

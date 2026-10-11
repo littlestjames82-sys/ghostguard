@@ -102,6 +102,18 @@ export function validatePolicyDoc(doc) {
     }
     return diagnostics;
 }
+export function assertPolicyValid(doc, options = {}) {
+    const diagnostics = validatePolicyDoc(doc);
+    const errors = diagnostics.filter((d) => d.level === "error");
+    const warnings = diagnostics.filter((d) => d.level === "warning");
+    if (errors.length > 0) {
+        throw new Error(`Invalid policy document: ${errors.map((d) => d.message).join("; ")}`);
+    }
+    if (options.throwOnWarning && warnings.length > 0) {
+        throw new Error(`Policy validation warnings: ${warnings.map((d) => d.message).join("; ")}`);
+    }
+    return diagnostics;
+}
 const FUNCTIONS = new Set(["startsWith", "endsWith", "contains", "matches"]);
 class PolicySyntaxError extends Error {
 }
