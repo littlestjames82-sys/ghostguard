@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertPolicyValid,
   compilePolicy,
+  compileValidatedPolicy,
   evaluatePolicy,
   defaultKernelPolicy,
   mergePolicyDocs,
@@ -54,6 +55,8 @@ const r2ctx = (over: Partial<PolicyContext>): PolicyContext => ({
   assert(codes.includes("allow-all"));
   assert.throws(() => assertPolicyValid({ rules: [{ id: "bad", effect: "ask", when: "kind ==" }] }), /invalid policy document/i);
   assert.doesNotThrow(() => assertPolicyValid({ rules: [{ id: "ok", effect: "allow", when: "permission_class == 'READ'" }] }));
+  assert.throws(() => compileValidatedPolicy({ rules: [{ id: "bad", effect: "ask", when: "kind ==" }] }), /invalid policy document/i);
+  assert.equal(compileValidatedPolicy({ rules: [{ id: "ok", effect: "allow", when: "permission_class == 'READ'" }] }).diagnostics.length, 0);
   ok("Policy validation: duplicate IDs, malformed rules, and permissive defaults are surfaced as diagnostics");
 }
 

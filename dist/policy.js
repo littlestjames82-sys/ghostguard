@@ -421,8 +421,12 @@ function evalAst(ast, ctx) {
         }
     }
 }
-export function compilePolicy(doc) {
-    const diagnostics = validatePolicyDoc(doc);
+export function compileValidatedPolicy(doc, options = {}) {
+    const diagnostics = assertPolicyValid(doc, options);
+    return compilePolicy(doc, diagnostics);
+}
+export function compilePolicy(doc, diagnosticsOverride = validatePolicyDoc(doc)) {
+    const diagnostics = diagnosticsOverride;
     const rules = [];
     const rawRules = Array.isArray(doc?.rules) ? doc.rules : [];
     rawRules.forEach((raw, idx) => {

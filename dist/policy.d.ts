@@ -194,7 +194,8 @@ export interface CompiledPolicy {
     source: PolicyDoc;
     diagnostics: PolicyDiagnostic[];
 }
-export declare function compilePolicy(doc: PolicyDoc): CompiledPolicy;
+export declare function compileValidatedPolicy(doc: PolicyDoc, options?: AssertPolicyValidOptions): CompiledPolicy;
+export declare function compilePolicy(doc: PolicyDoc, diagnosticsOverride?: PolicyDiagnostic[]): CompiledPolicy;
 /**
  * Evaluate a compiled policy against one action context.
  * Strictest tier first, fail-closed — see the header for the exact
