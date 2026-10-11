@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  compilePolicy, evaluatePolicy, defaultKernelPolicy, mergePolicyDocs, type PolicyContext,
+  compilePolicy, evaluatePolicy, defaultKernelPolicy, mergePolicyDocs, validatePolicyDoc, type PolicyContext,
 } from "../src/policy.js";
 import { gatewayRecordFromDecision, type GatewayRecord } from "../src/gateway.js";
 import { createJsonlRecorder, readGatewayRecords } from "../src/recorder.js";
@@ -30,6 +30,24 @@ const r2ctx = (over: Partial<PolicyContext>): PolicyContext => ({
   kind: "fs.write", permission_class: "WRITE_LOCAL", actor: "job_r2",
   project_id: "r2", approved: false, payload: {}, ...over,
 });
+
+// ── Validation and diagnostics for real-world policy authoring.
+{
+  const diagnostics = validatePolicyDoc({ rules: [
+    { id: "allow-everything", effect: "allow", when: "true" },
+    { id: "allow-everything", effect: "allow", when: "true" },
+    { id: "bad-expression", effect: "ask", when: "kind ==" },
+    { id: "missing-target", effect: "hand_off", when: "true" },
+    { id: "empty-rule", effect: "deny", when: "" },
+  ] });
+  const codes = diagnostics.map((d) => d.code);
+  assert(codes.includes("duplicate-rule-id"));
+  assert(codes.includes("invalid-rule-expression"));
+  assert(codes.includes("missing-handoff-target"));
+  assert(codes.includes("empty-rule-expression"));
+  assert(codes.includes("allow-all"));
+  ok("Policy validation: duplicate IDs, malformed rules, and permissive defaults are surfaced as diagnostics");
+}
 
 // ── Ported: Policy engine expressions + the shipped default policy
 // reproducing the legacy gate (approval classes ask, the rest allows).

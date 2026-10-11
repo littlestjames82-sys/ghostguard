@@ -89,6 +89,35 @@ npm run example:cli      # a guarded agent: approve its asks with `y`
 npm run example:browser  # the classifier walkthrough (non-interactive)
 ```
 
+### Production-safe integration pattern
+
+Use the same path in every integration:
+
+1. Evaluate the policy.
+2. Assemble the gateway record from the decision.
+3. Write the record synchronously.
+4. Flush the recorder before any effect is allowed to run.
+5. Only then execute the effect, and only if the verdict is `allow` or `pre_approved`.
+
+```ts
+const compiled = compilePolicy(policyDoc);
+for (const d of compiled.diagnostics) {
+  if (d.level === "error") throw new Error(d.message);
+  console.warn(d.message);
+}
+
+const decision = evaluatePolicy(compiled, context);
+const record = gatewayRecordFromDecision(intent, decision);
+jsonlRecorder(record);
+await cloudRecorder.flush();
+
+if (record.verdict === "allow" || record.verdict === "pre_approved") {
+  execute(action);
+}
+```
+
+This is the default contract for real deployments: no record, no action.
+
 Hit a denial and want to know exactly why? Read
 [`docs/reading-a-denial.md`](docs/reading-a-denial.md) — it walks one
 real record field by field.

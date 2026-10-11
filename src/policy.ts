@@ -120,6 +120,116 @@ export interface PolicyDoc {
   rules: PolicyRule[];
 }
 
+export type PolicyDiagnosticLevel = "warning" | "error";
+
+export interface PolicyDiagnostic {
+  level: PolicyDiagnosticLevel;
+  code: string;
+  message: string;
+  rule_id?: string | null;
+}
+
+export function validatePolicyDoc(doc: PolicyDoc): PolicyDiagnostic[] {
+  const diagnostics: PolicyDiagnostic[] = [];
+  if (!doc || !Array.isArray(doc.rules)) {
+    return [{
+      level: "error",
+      code: "invalid-policy-doc",
+      message: "Policy document must include a rules array.",
+    }];
+  }
+
+  const seenIds = new Map<string, number>();
+  const allowTrueRules: string[] = [];
+
+  if (doc.rules.length === 0) {
+    diagnostics.push({
+      level: "warning",
+      code: "empty-policy",
+      message: "Policy has no rules; the fail-closed default will deny every action.",
+    });
+  }
+
+  for (let index = 0; index < doc.rules.length; index += 1) {
+    const raw = doc.rules[index] as Partial<PolicyRule> | undefined;
+    const ruleId = typeof raw?.id === "string" ? raw.id.trim() : "";
+
+    if (!ruleId) {
+      diagnostics.push({
+        level: "error",
+        code: "missing-rule-id",
+        message: `Rule #${index + 1} is missing a unique id.`,
+      });
+    } else {
+      const firstIndex = seenIds.get(ruleId);
+      if (firstIndex !== undefined) {
+        diagnostics.push({
+          level: "error",
+          code: "duplicate-rule-id",
+          rule_id: ruleId,
+          message: `Duplicate rule id "${ruleId}" also appears at rule #${firstIndex}.`,
+        });
+      } else {
+        seenIds.set(ruleId, index + 1);
+      }
+    }
+
+    const effect = raw?.effect as PolicyEffect | undefined;
+    const validEffect = Array.isArray(EFFECT_TIERS) && EFFECT_TIERS.includes(effect as PolicyEffect);
+    if (!validEffect) {
+      diagnostics.push({
+        level: "error",
+        code: "invalid-rule-effect",
+        rule_id: ruleId || null,
+        message: `Rule ${ruleId ? `"${ruleId}"` : `#${index + 1}`} has an invalid effect: ${JSON.stringify(raw?.effect)}.`,
+      });
+    }
+
+    const when = typeof raw?.when === "string" ? raw.when.trim() : "";
+    if (effect === "hand_off" && !(typeof raw?.handoff_to === "string" && raw.handoff_to.trim())) {
+      diagnostics.push({
+        level: "error",
+        code: "missing-handoff-target",
+        rule_id: ruleId || null,
+        message: `Rule ${ruleId ? `"${ruleId}"` : `#${index + 1}`} uses effect "hand_off" but has no handoff_to target.`,
+      });
+    }
+
+    if (when.length === 0) {
+      diagnostics.push({
+        level: "error",
+        code: "empty-rule-expression",
+        rule_id: ruleId || null,
+        message: `Rule ${ruleId ? `"${ruleId}"` : `#${index + 1}`} has an empty when expression.`,
+      });
+    } else {
+      try { parsePolicyExpression(when); }
+      catch (error) {
+        diagnostics.push({
+          level: "error",
+          code: "invalid-rule-expression",
+          rule_id: ruleId || null,
+          message: `Rule ${ruleId ? `"${ruleId}"` : `#${index + 1}`} has an invalid expression: ${(error as Error).message}.`,
+        });
+      }
+    }
+
+    if (effect === "allow" && /^true$/i.test(when)) {
+      allowTrueRules.push(ruleId || `#${index + 1}`);
+    }
+  }
+
+  if (allowTrueRules.length > 0) {
+    diagnostics.push({
+      level: "warning",
+      code: "allow-all",
+      message: `Allow rules matching true (${allowTrueRules.join(", ")}) make this policy effectively allow-all unless stricter rules still outrank it.`,
+    });
+  }
+
+  return diagnostics;
+}
+
 export interface PolicyContext {
   kind: string;
   permission_class: PermissionClass | null;
@@ -417,9 +527,11 @@ export interface CompiledRule {
 export interface CompiledPolicy {
   rules: CompiledRule[];
   source: PolicyDoc;
+  diagnostics: PolicyDiagnostic[];
 }
 
 export function compilePolicy(doc: PolicyDoc): CompiledPolicy {
+  const diagnostics = validatePolicyDoc(doc);
   const rules: CompiledRule[] = [];
   const rawRules = Array.isArray(doc?.rules) ? doc.rules : [];
   rawRules.forEach((raw, idx) => {
@@ -449,7 +561,7 @@ export function compilePolicy(doc: PolicyDoc): CompiledPolicy {
       brokenStance: effectOk && !RESTRICTIVE.has(r.effect as PolicyEffect) ? "inert" : "deny",
     });
   });
-  return { rules, source: doc };
+  return { rules, source: doc, diagnostics };
 }
 
 function ruleMatches(rule: CompiledRule, ctx: PolicyContext): boolean {

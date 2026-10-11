@@ -105,6 +105,14 @@ export interface PolicyRule {
 export interface PolicyDoc {
     rules: PolicyRule[];
 }
+export type PolicyDiagnosticLevel = "warning" | "error";
+export interface PolicyDiagnostic {
+    level: PolicyDiagnosticLevel;
+    code: string;
+    message: string;
+    rule_id?: string | null;
+}
+export declare function validatePolicyDoc(doc: PolicyDoc): PolicyDiagnostic[];
 export interface PolicyContext {
     kind: string;
     permission_class: PermissionClass | null;
@@ -180,6 +188,7 @@ export interface CompiledRule {
 export interface CompiledPolicy {
     rules: CompiledRule[];
     source: PolicyDoc;
+    diagnostics: PolicyDiagnostic[];
 }
 export declare function compilePolicy(doc: PolicyDoc): CompiledPolicy;
 /**
