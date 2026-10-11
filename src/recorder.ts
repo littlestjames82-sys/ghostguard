@@ -50,6 +50,6 @@ export function readGatewayRecords(filePath: string): GatewayRecord[] {
   const text = readFileSync(filePath, "utf8");
   return text
     .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as GatewayRecord);
+    .filter((line: string) => line.trim().length > 0)
+    .map((line: string) => JSON.parse(line) as GatewayRecord);
 }

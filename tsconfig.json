@@ -1,1 +1,1 @@
-{"compilerOptions":{"esModuleInterop":true,"forceConsistentCasingInFileNames":true,"module":"ESNext","moduleResolution":"Bundler","noEmit":true,"resolveJsonModule":true,"skipLibCheck":true,"strict":true,"target":"ES2022"},"include":["src","test","examples"]}
+{"compilerOptions":{"esModuleInterop":true,"forceConsistentCasingInFileNames":true,"module":"ESNext","moduleResolution":"Bundler","noEmit":true,"resolveJsonModule":true,"skipLibCheck":true,"strict":true,"target":"ES2022","types":["node"]},"include":["src","test","examples"]}
