@@ -554,8 +554,13 @@ export interface CompiledPolicy {
   diagnostics: PolicyDiagnostic[];
 }
 
-export function compilePolicy(doc: PolicyDoc): CompiledPolicy {
-  const diagnostics = validatePolicyDoc(doc);
+export function compileValidatedPolicy(doc: PolicyDoc, options: AssertPolicyValidOptions = {}): CompiledPolicy {
+  const diagnostics = assertPolicyValid(doc, options);
+  return compilePolicy(doc, diagnostics);
+}
+
+export function compilePolicy(doc: PolicyDoc, diagnosticsOverride: PolicyDiagnostic[] = validatePolicyDoc(doc)): CompiledPolicy {
+  const diagnostics = diagnosticsOverride;
   const rules: CompiledRule[] = [];
   const rawRules = Array.isArray(doc?.rules) ? doc.rules : [];
   rawRules.forEach((raw, idx) => {
