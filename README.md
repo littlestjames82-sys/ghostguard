@@ -1,4 +1,5 @@
 # GhostGuard
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/littlestjames82-sys/ghostguard)](https://github.com/littlestjames82-sys/ghostguard/releases)
 
 **Record-first gateway, fail-closed policy, approvals, and audit — for any agent.**
 
@@ -228,3 +229,16 @@ See `PLAN.md` for the product plan.
 
 MIT — see `LICENSE`. Copyright (c) 2026 Ghost Developer Studio.
 Design lineage: CopilotKit/OpenBot (MIT), via Ghost Kernel.
+
+---
+<!-- ghost-studio-footer -->
+## More from Ghost Developer Studio
+
+Ghost Developer Studio builds developer tools, AI-agent safety software, and practical apps, and sells by showing working software, not slide decks.
+
+- [Roadmap board](https://github.com/littlestjames82-sys/ghost-roadmaps): where every studio product stands
+- [Agent Seatbelt](https://github.com/littlestjames82-sys/agent-seatbelt): deterministic guardrails for AI coding agents
+- [Ghost Hands](https://github.com/littlestjames82-sys/ghost-hands): governed, recorded, replayable agent hands
+- [GhostSlice](https://github.com/littlestjames82-sys/ghostslice): agent context and prompt optimizer
+- [GhostIDE](https://github.com/littlestjames82-sys/ghostide-android): fully offline AI code editor for Android
+- [All studio projects](https://github.com/littlestjames82-sys?tab=repositories)
