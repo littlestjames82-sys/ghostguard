@@ -1,0 +1,35 @@
+{
+  "description": "GhostGuard Secrets Broker \u2014 just-in-time secret injection for governed agent actions: the agent holds only a secret reference, the broker resolves and injects the value at execution, only after an allow verdict. By Ghost Developer Studio.",
+  "dependencies": {
+    "ghostguard": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "license": "MIT",
+  "name": "ghostguard-secrets",
+  "private": false,
+  "scripts": {
+    "demo": "node examples/demo.mjs",
+    "test": "node test/run-tests.mjs",
+    "verify": "node test/run-tests.mjs"
+  },
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard-secrets.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard-secrets/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard-secrets#readme",
+  "files": [
+    "src",
+    "examples"
+  ]
+}

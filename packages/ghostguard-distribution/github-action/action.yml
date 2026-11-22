@@ -1,0 +1,38 @@
+name: "GhostGuard Gate"
+description: >-
+  Fail the workflow unless the GhostGuard trail records the required
+  action as allow/pre_approved (optionally with a matching approval).
+  Delivered as files by Ghost Developer Studio — LOCAL PREVIEW, not
+  published to the GitHub Marketplace or any repo.
+author: "Ghost Developer Studio"
+inputs:
+  trail:
+    description: "Path to the GhostGuard trail file (JSONL) in the workspace."
+    required: true
+  action-id:
+    description: "The action_id the workflow step requires a passing record for."
+    required: true
+  require-approval:
+    description: "Also require a matching approval (decision) entry for the action_id."
+    required: false
+    default: "false"
+  node-version:
+    description: "Node version for the setup-node step."
+    required: false
+    default: "20"
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: GhostGuard gate check
+      shell: bash
+      run: >-
+        node "${{ github.action_path }}/gate.mjs"
+        --trail "${{ inputs.trail }}"
+        --action-id "${{ inputs.action-id }}"
+        ${{ inputs.require-approval == 'true' && '--require-approval' || '' }}
+branding:
+  icon: "shield"
+  color: "purple"

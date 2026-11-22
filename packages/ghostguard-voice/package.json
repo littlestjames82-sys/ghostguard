@@ -1,0 +1,33 @@
+{
+  "bin": {
+    "ghostguard-voice": "./src/cli.mjs"
+  },
+  "description": "GhostGuard voice approval prototype \u2014 answer a pending GhostGuard ask with a recorded voice decision. Voice is the channel, NOT an identity proof: no voice-match/biometric verification is implemented.",
+  "dependencies": {
+    "ghostguard": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "name": "ghostguard-voice",
+  "private": false,
+  "scripts": {
+    "test": "node test/run-tests.mjs",
+    "verify": "npm test"
+  },
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard-voice.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard-voice/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard-voice#readme",
+  "files": [
+    "src"
+  ]
+}

@@ -1,0 +1,9 @@
+# Demo policy, in plain English.
+# Compile: node ../author.mjs build rules.en.txt
+never allow spending
+never allow deleting
+always ask before deploying
+owner must approve messages to strangers
+routines must ask before network writes
+allow reading
+writing local files is pre-approved

@@ -1,0 +1,224 @@
+{
+  "fictional": true,
+  "client": "Copperline Support Co. (FICTIONAL)",
+  "agent": "helpdesk-helper-fictional (FICTIONAL)",
+  "project_id": "copperline-support-fictional",
+  "total_actions": 17,
+  "by_verdict": {
+    "allow": 5,
+    "pre_approved": 1,
+    "hand_off": 1,
+    "ask": 6,
+    "deny": 4
+  },
+  "by_rule": {
+    "reads-allow": 2,
+    "ticket-drafts-preapproved": 1,
+    "local-writes-person-allow": 1,
+    "external-comms-to-owner": 1,
+    "comms-ask": 2,
+    "no-spend-ever": 2,
+    "no-delete-ever": 1,
+    "deploys-ask": 1,
+    "publish-asks": 1,
+    "routine-consequential-asks": 2,
+    "network-person-allow": 1,
+    "execute-person-allow": 1,
+    "(none — fail-closed default)": 1
+  },
+  "by_class": {
+    "READ": 2,
+    "WRITE_LOCAL": 2,
+    "COMMUNICATE": 3,
+    "SPEND": 2,
+    "DELETE": 1,
+    "DEPLOY": 1,
+    "PUBLISH": 1,
+    "NETWORK_WRITE": 2,
+    "EXECUTE": 2,
+    "(unmapped)": 1
+  },
+  "by_initiator": {
+    "person": 10,
+    "routine": 7
+  },
+  "results": [
+    {
+      "action_id": "a01",
+      "kind": "ticket.read",
+      "permission_class": "READ",
+      "initiator": "person",
+      "verdict": "allow",
+      "rule_id": "reads-allow",
+      "reason": "allowed by policy rule \"reads-allow\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a02",
+      "kind": "kb.search",
+      "permission_class": "READ",
+      "initiator": "routine",
+      "verdict": "allow",
+      "rule_id": "reads-allow",
+      "reason": "allowed by policy rule \"reads-allow\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a03",
+      "kind": "ticket.draft",
+      "permission_class": "WRITE_LOCAL",
+      "initiator": "routine",
+      "verdict": "pre_approved",
+      "rule_id": "ticket-drafts-preapproved",
+      "reason": "policy rule \"ticket-drafts-preapproved\" grants standing approval (pre-approved within its bounds)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a04",
+      "kind": "note.write",
+      "permission_class": "WRITE_LOCAL",
+      "initiator": "person",
+      "verdict": "allow",
+      "rule_id": "local-writes-person-allow",
+      "reason": "allowed by policy rule \"local-writes-person-allow\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a05",
+      "kind": "email.send",
+      "permission_class": "COMMUNICATE",
+      "initiator": "person",
+      "verdict": "hand_off",
+      "rule_id": "external-comms-to-owner",
+      "reason": "policy rule \"external-comms-to-owner\" hands this action off to \"owner\" instead of executing it",
+      "handoff_to": "owner"
+    },
+    {
+      "action_id": "a06",
+      "kind": "email.send",
+      "permission_class": "COMMUNICATE",
+      "initiator": "person",
+      "verdict": "ask",
+      "rule_id": "comms-ask",
+      "reason": "policy rule \"comms-ask\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a07",
+      "kind": "email.send",
+      "permission_class": "COMMUNICATE",
+      "initiator": "routine",
+      "verdict": "ask",
+      "rule_id": "comms-ask",
+      "reason": "policy rule \"comms-ask\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a08",
+      "kind": "refund.issue",
+      "permission_class": "SPEND",
+      "initiator": "person",
+      "verdict": "deny",
+      "rule_id": "no-spend-ever",
+      "reason": "denied by policy rule \"no-spend-ever\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a09",
+      "kind": "subscription.buy",
+      "permission_class": "SPEND",
+      "initiator": "routine",
+      "verdict": "deny",
+      "rule_id": "no-spend-ever",
+      "reason": "denied by policy rule \"no-spend-ever\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a10",
+      "kind": "record.delete",
+      "permission_class": "DELETE",
+      "initiator": "person",
+      "verdict": "deny",
+      "rule_id": "no-delete-ever",
+      "reason": "denied by policy rule \"no-delete-ever\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a11",
+      "kind": "macro.deploy",
+      "permission_class": "DEPLOY",
+      "initiator": "routine",
+      "verdict": "ask",
+      "rule_id": "deploys-ask",
+      "reason": "policy rule \"deploys-ask\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a12",
+      "kind": "kb.publish",
+      "permission_class": "PUBLISH",
+      "initiator": "person",
+      "verdict": "ask",
+      "rule_id": "publish-asks",
+      "reason": "policy rule \"publish-asks\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a13",
+      "kind": "form.submit",
+      "permission_class": "NETWORK_WRITE",
+      "initiator": "routine",
+      "verdict": "ask",
+      "rule_id": "routine-consequential-asks",
+      "reason": "policy rule \"routine-consequential-asks\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a14",
+      "kind": "form.submit",
+      "permission_class": "NETWORK_WRITE",
+      "initiator": "person",
+      "verdict": "allow",
+      "rule_id": "network-person-allow",
+      "reason": "allowed by policy rule \"network-person-allow\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a15",
+      "kind": "tool.execute",
+      "permission_class": "EXECUTE",
+      "initiator": "routine",
+      "verdict": "ask",
+      "rule_id": "routine-consequential-asks",
+      "reason": "policy rule \"routine-consequential-asks\" requires human approval (ask)",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a16",
+      "kind": "tool.execute",
+      "permission_class": "EXECUTE",
+      "initiator": "person",
+      "verdict": "allow",
+      "rule_id": "execute-person-allow",
+      "reason": "allowed by policy rule \"execute-person-allow\"",
+      "handoff_to": null
+    },
+    {
+      "action_id": "a17",
+      "kind": "mystery.action",
+      "permission_class": null,
+      "initiator": "person",
+      "verdict": "deny",
+      "rule_id": null,
+      "reason": "no policy rule matched this action — denied by the fail-closed default",
+      "handoff_to": null
+    }
+  ],
+  "structural_checks": {
+    "locked_rules_held_against_hostile_overlay": true,
+    "strictest_verdict_wins_a05_handoff_over_ask": true,
+    "initiator_discipline_routine_stricter": true,
+    "unmapped_action_fail_closed_a17": true,
+    "record_completeness_all_fields": true
+  }
+}

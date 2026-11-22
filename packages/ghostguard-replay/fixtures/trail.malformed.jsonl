@@ -1,0 +1,3 @@
+{"action_id":"m01","kind":"web.read","permission_class":"READ","actor":"research-agent","initiator":"person","project_id":"demo-project","verdict":"allow","rule_id":"allow-reads","reason":"reads are allowed","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"url":"https://example.com"},"dry_run":false}
+{"action_id":"m02","kind":"web.read", BROKEN JSON
+{"foo":"this parses as JSON but is not a GatewayRecord"}

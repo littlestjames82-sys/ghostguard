@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Trail Portal — White-Label Prototype (FICTIONAL DEMO DATA)</title>
+<!--
+  WHITE-LABEL TRAIL PORTAL — PROTOTYPE. Unpublished, no server, nothing leaves the browser.
+  Branding: edit the BRANDING object at the top of the <script> below, or override with
+  query params:  ?agency=Acme%20AI%20Studio&logo=ACME&accent=%236716f3&client=Copperline
+  Attribution: the "Powered by GhostGuard" footer line is part of the product. Keep it.
+-->
+<style>
+  :root { --accent:#6716f3; --ink:#191423; --mut:#6b6478; --line:#e6e1f0; --bg:#faf9fc; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:var(--bg); }
+  header { background:var(--ink); color:#fff; padding:18px 22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .logo { background:var(--accent); color:#fff; font-weight:800; letter-spacing:.06em; padding:8px 12px; border-radius:8px; font-size:15px; }
+  header h1 { font-size:19px; margin:0; font-weight:650; }
+  header .sub { color:#cfc8de; font-size:13px; width:100%; margin-top:2px; }
+  .demo-banner { background:#fff3cd; color:#664d03; border-bottom:1px solid #e8d48b; padding:8px 22px; font-size:13px; }
+  main { max-width:1080px; margin:0 auto; padding:20px 22px 40px; }
+  .cards { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 16px; min-width:104px; }
+  .card b { display:block; font-size:22px; }
+  .card span { color:var(--mut); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  h2 { font-size:16px; margin:26px 0 10px; }
+  .pending { background:#fff; border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:10px; padding:12px 16px; margin:10px 0; }
+  .pending .meta { color:var(--mut); font-size:13px; }
+  .pending pre, td pre { background:#f4f1fa; border-radius:6px; padding:8px; overflow:auto; font-size:12px; margin:8px 0 0; }
+  button { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:7px; padding:5px 12px; cursor:pointer; font-size:13px; }
+  button.deny { background:#fff; color:#b3261e; border-color:#b3261e; }
+  button.ghost { background:#fff; color:var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+  .toolbar input[type=search] { padding:7px 10px; border:1px solid var(--line); border-radius:7px; min-width:220px; }
+  .chip { border:1px solid var(--line); background:#fff; border-radius:99px; padding:4px 11px; font-size:13px; cursor:pointer; }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
+  th { background:#f4f1fa; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
+  .v { font-weight:700; white-space:nowrap; }
+  .v-allow{color:#137333}.v-pre_approved{color:#0b8043}.v-ask{color:#b06000}.v-hand_off{color:#6716f3}.v-deny{color:#b3261e}
+  .detail td { background:#fcfbfe; }
+  footer { border-top:1px solid var(--line); padding:16px 22px; color:var(--mut); font-size:12.5px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  .powered b { color:var(--accent); }
+  .note { color:var(--mut); font-size:13px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" id="brandLogo">STUDIO</div>
+  <h1 id="brandName">Your Agency</h1>
+  <div class="sub">Agent activity trail for <span id="brandClient">your client</span> — every action, its verdict, and the rule that decided it.</div>
+</header>
+<div class="demo-banner"><strong>Prototype with FICTIONAL DEMO DATA.</strong> The trail below is the fictional “Copperline Support Co.” worked example — no real client, agent, or data. Approve/Deny buttons change this page only; in the hosted portal they append a real decision record (see SPEC.md).</div>
+
+<main>
+  <div class="cards" id="cards"></div>
+
+  <div class="toolbar">
+    <label>Load a GhostGuard trail (.jsonl):
+      <input type="file" id="fileInput" accept=".jsonl,.json,.txt">
+    </label>
+    <button class="ghost" id="resetDemo">Reset to fictional demo</button>
+    <span class="note" id="trailSource">Showing: embedded fictional demo trail (17 records)</span>
+  </div>
+
+  <h2>Pending approvals <span class="note">(verdicts: ask / hand_off, no decision yet)</span></h2>
+  <div id="pending"></div>
+
+  <h2>Full trail</h2>
+  <div class="toolbar" id="filters">
+    <input type="search" id="q" placeholder="Search kind, actor, rule, payload…">
+  </div>
+  <table>
+    <thead><tr><th>ID</th><th>Action</th><th>Class</th><th>Initiator</th><th>Verdict</th><th>Deciding rule</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="note">A record is written <em>before</em> an action runs — an action that was not recorded did not happen. Records naming a secret show its type and length only, never its value.</p>
+</main>
+
+<footer>
+  <span>This portal presents governance records. It certifies nothing.</span>
+  <span class="powered">Powered by <b>GhostGuard</b> · Ghost Developer Studio</span>
+</footer>
+
+<script>
+"use strict";
+/* ================================================================
+   BRANDING — swappable agency branding. Edit here, or override via
+   query params ?agency=&logo=&accent=&client=
+   ================================================================ */
+const BRANDING = {
+  agency: "Your Agency Name",
+  logoText: "AGENCY",
+  accent: "#6716f3",
+  client: "Copperline Support Co. (FICTIONAL)",
+};
+const qs = new URLSearchParams(location.search);
+if (qs.get("agency")) BRANDING.agency = qs.get("agency");
+if (qs.get("logo")) BRANDING.logoText = qs.get("logo");
+if (qs.get("accent")) BRANDING.accent = qs.get("accent");
+if (qs.get("client")) BRANDING.client = qs.get("client");
+document.documentElement.style.setProperty("--accent", BRANDING.accent);
+document.getElementById("brandLogo").textContent = BRANDING.logoText;
+document.getElementById("brandName").textContent = BRANDING.agency;
+document.getElementById("brandClient").textContent = BRANDING.client;
+
+/* Embedded FICTIONAL demo trail — the real gateway records produced by
+   ../audit/generate-example-trail.mjs for the fictional Copperline agent. */
+const DEMO_TRAIL = /*__TRAIL__*/[{"action_id":"a01","kind":"ticket.read","permission_class":"READ","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"allow","rule_id":"reads-allow","reason":"allowed by policy rule \"reads-allow\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"ticket_id":"T-1042"},"dry_run":false},{"action_id":"a02","kind":"kb.search","permission_class":"READ","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"allow","rule_id":"reads-allow","reason":"allowed by policy rule \"reads-allow\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"query":"refund policy wording"},"dry_run":false},{"action_id":"a03","kind":"ticket.draft","permission_class":"WRITE_LOCAL","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"pre_approved","rule_id":"ticket-drafts-preapproved","reason":"policy rule \"ticket-drafts-preapproved\" grants standing approval (pre-approved within its bounds)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"ticket_id":"T-1042","draft_chars":412},"dry_run":false},{"action_id":"a04","kind":"note.write","permission_class":"WRITE_LOCAL","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"allow","rule_id":"local-writes-person-allow","reason":"allowed by policy rule \"local-writes-person-allow\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"path":"notes/shift-summary.txt"},"dry_run":false},{"action_id":"a05","kind":"email.send","permission_class":"COMMUNICATE","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"hand_off","rule_id":"external-comms-to-owner","reason":"policy rule \"external-comms-to-owner\" hands this action off to \"owner\" instead of executing it","handoff_to":"owner","target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"external":true,"to_role":"customer","subject_chars":38},"dry_run":false},{"action_id":"a06","kind":"email.send","permission_class":"COMMUNICATE","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"comms-ask","reason":"policy rule \"comms-ask\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"external":false,"to_role":"teammate","subject_chars":22},"dry_run":false},{"action_id":"a07","kind":"email.send","permission_class":"COMMUNICATE","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"comms-ask","reason":"policy rule \"comms-ask\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"external":false,"to_role":"teammate","subject_chars":22},"dry_run":false},{"action_id":"a08","kind":"refund.issue","permission_class":"SPEND","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"deny","rule_id":"no-spend-ever","reason":"denied by policy rule \"no-spend-ever\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"amount_cents":2500,"currency":"USD"},"dry_run":false},{"action_id":"a09","kind":"subscription.buy","permission_class":"SPEND","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"deny","rule_id":"no-spend-ever","reason":"denied by policy rule \"no-spend-ever\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"amount_cents":4900,"currency":"USD","plan":"pro-monthly"},"dry_run":false},{"action_id":"a10","kind":"record.delete","permission_class":"DELETE","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"deny","rule_id":"no-delete-ever","reason":"denied by policy rule \"no-delete-ever\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"record_id":"T-0917"},"dry_run":false},{"action_id":"a11","kind":"macro.deploy","permission_class":"DEPLOY","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"deploys-ask","reason":"policy rule \"deploys-ask\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"macro":"refund-script-v3","credential":{"type":"api_key","length":40}},"dry_run":false},{"action_id":"a12","kind":"kb.publish","permission_class":"PUBLISH","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"publish-asks","reason":"policy rule \"publish-asks\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"article":"how-refunds-work","words":640},"dry_run":false},{"action_id":"a13","kind":"form.submit","permission_class":"NETWORK_WRITE","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"routine-consequential-asks","reason":"policy rule \"routine-consequential-asks\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"form":"vendor-status-update"},"dry_run":false},{"action_id":"a14","kind":"form.submit","permission_class":"NETWORK_WRITE","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"allow","rule_id":"network-person-allow","reason":"allowed by policy rule \"network-person-allow\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"form":"vendor-status-update"},"dry_run":false},{"action_id":"a15","kind":"tool.execute","permission_class":"EXECUTE","actor":"helpdesk-helper-fictional","initiator":"routine","project_id":"copperline-support-fictional","verdict":"ask","rule_id":"routine-consequential-asks","reason":"policy rule \"routine-consequential-asks\" requires human approval (ask)","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"tool":"crm-lookup","args_chars":18},"dry_run":false},{"action_id":"a16","kind":"tool.execute","permission_class":"EXECUTE","actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"allow","rule_id":"execute-person-allow","reason":"allowed by policy rule \"execute-person-allow\"","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"tool":"crm-lookup","args_chars":18},"dry_run":false},{"action_id":"a17","kind":"mystery.action","permission_class":null,"actor":"helpdesk-helper-fictional","initiator":"person","project_id":"copperline-support-fictional","verdict":"deny","rule_id":null,"reason":"no policy rule matched this action — denied by the fail-closed default","handoff_to":null,"target_ref":null,"snapshot_id":null,"target":null,"action_payload":{"note":"unmapped action from the fictional intake — must fail closed"},"dry_run":false}];
+
+let trail = DEMO_TRAIL.slice();
+let decisions = {};           // prototype-only, in-page state: action_id -> "approve"|"deny"
+let verdictFilter = "all";
+let query = "";
+
+const VERDICTS = ["allow", "pre_approved", "ask", "hand_off", "deny"];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function render() {
+  // tally cards
+  const counts = { total: trail.length };
+  for (const v of VERDICTS) counts[v] = trail.filter((r) => r.verdict === v).length;
+  counts.pending = trail.filter((r) => (r.verdict === "ask" || r.verdict === "hand_off") && !decisions[r.action_id]).length;
+  document.getElementById("cards").innerHTML =
+    [["total", counts.total], ...VERDICTS.map((v) => [v, counts[v]]), ["pending", counts.pending]]
+      .map(([k, n]) => `<div class="card"><b>${n}</b><span>${esc(k.replace("_", " "))}</span></div>`).join("");
+
+  // pending approvals
+  const pend = trail.filter((r) => (r.verdict === "ask" || r.verdict === "hand_off") && !decisions[r.action_id]);
+  document.getElementById("pending").innerHTML = pend.length ? pend.map((r) => `
+    <div class="pending">
+      <strong>${esc(r.kind)}</strong> <span class="v v-${esc(r.verdict)}">${esc(r.verdict)}</span>
+      ${r.handoff_to ? `<span class="meta">→ handed off to <b>${esc(r.handoff_to)}</b></span>` : ""}
+      <div class="meta">class ${esc(r.permission_class)} · proposed by ${esc(r.actor)} · run started by ${esc(r.initiator)} · decided by rule <b>${esc(r.rule_id || "(fail-closed default)")}</b> — ${esc(r.reason)}</div>
+      <pre>${esc(JSON.stringify(r.action_payload, null, 2))}</pre>
+      <p>
+        <button onclick="decide('${esc(r.action_id)}','approve')">Approve exact payload</button>
+        <button class="deny" onclick="decide('${esc(r.action_id)}','deny')">Deny</button>
+        <span class="note">Prototype: decision is local to this page only.</span>
+      </p>
+    </div>`).join("")
+    : `<p class="note">Nothing is waiting for a decision in this trail.</p>`;
+
+  // filter chips
+  const filters = document.getElementById("filters");
+  filters.querySelectorAll(".chip").forEach((c) => c.remove());
+  for (const v of ["all", ...VERDICTS]) {
+    const b = document.createElement("button");
+    b.className = "chip" + (verdictFilter === v ? " on" : "");
+    b.textContent = v.replace("_", " ");
+    b.onclick = () => { verdictFilter = v; render(); };
+    filters.appendChild(b);
+  }
+
+  // trail table
+  const rows = trail.filter((r) =>
+    (verdictFilter === "all" || r.verdict === verdictFilter) &&
+    (query === "" || JSON.stringify(r).toLowerCase().includes(query)));
+  document.getElementById("rows").innerHTML = rows.map((r) => `
+    <tr>
+      <td>${esc(r.action_id)}</td>
+      <td><b>${esc(r.kind)}</b>${decisions[r.action_id] ? `<br><span class="note">decision (prototype): ${esc(decisions[r.action_id])}</span>` : ""}</td>
+      <td>${esc(r.permission_class || "(unmapped)")}</td>
+      <td>${esc(r.initiator)}</td>
+      <td class="v v-${esc(r.verdict)}">${esc(r.verdict)}</td>
+      <td>${esc(r.rule_id || "(none — fail-closed default)")}</td>
+      <td><button class="ghost" onclick="toggleDetail('${esc(r.action_id)}')">payload</button></td>
+    </tr>
+    <tr class="detail" id="detail-${esc(r.action_id)}" hidden>
+      <td colspan="7"><div class="meta">${esc(r.reason)}</div><pre>${esc(JSON.stringify(r, null, 2))}</pre></td>
+    </tr>`).join("") || `<tr><td colspan="7" class="note">No records match.</td></tr>`;
+}
+
+window.decide = (id, d) => { decisions[id] = d; render(); };
+window.toggleDetail = (id) => { const el = document.getElementById("detail-" + id); if (el) el.hidden = !el.hidden; };
+document.getElementById("q").addEventListener("input", (e) => { query = e.target.value.toLowerCase(); render(); });
+document.getElementById("resetDemo").onclick = () => {
+  trail = DEMO_TRAIL.slice(); decisions = {};
+  document.getElementById("trailSource").textContent = "Showing: embedded fictional demo trail (17 records)";
+  render();
+};
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const text = await file.text();
+  try {
+    trail = text.split(/\r?\n/).filter((l) => l.trim()).map((l) => JSON.parse(l))
+      .filter((r) => r && r.action_id && r.verdict); // gateway records only; decision entries are skipped in this prototype
+    decisions = {};
+    document.getElementById("trailSource").textContent = `Showing: ${file.name} (${trail.length} records, parsed locally — nothing was uploaded)`;
+    render();
+  } catch (err) { alert("Could not parse that file as a JSONL trail: " + err.message); }
+});
+
+render();
+</script>
+</body>
+</html>

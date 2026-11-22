@@ -1,0 +1,1 @@
+{"action_id":"deploy_prod_1","action_payload":{"ref":"main","service":"web"},"actor":"ci-agent","dry_run":false,"handoff_to":null,"initiator":"routine","kind":"ops.deploy","permission_class":"DEPLOY","project_id":"demo","reason":"routines may not deploy","rule_id":"no-routine-deploys","snapshot_id":null,"target":null,"target_ref":null,"verdict":"deny"}

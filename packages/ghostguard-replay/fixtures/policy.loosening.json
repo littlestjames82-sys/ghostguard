@@ -1,0 +1,1 @@
+{"rules":[{"effect":"allow","id":"allow-everything","note":"DANGEROUS DRAFT used by the tests: a single allow-all with no locked layer — replay must flag it as loosening","when":"true"}]}

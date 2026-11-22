@@ -1,0 +1,34 @@
+{
+  "bin": {
+    "ghostguard-budgets": "./src/cli.mjs"
+  },
+  "description": "GhostGuard add-on \u2014 stateful budgets/velocity rules and a kill switch on top of the stateless GhostGuard engine. By Ghost Developer Studio.",
+  "dependencies": {
+    "ghostguard": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "main": "./src/index.mjs",
+  "name": "ghostguard-budgets",
+  "private": false,
+  "scripts": {
+    "test": "node test/run-tests.mjs",
+    "verify": "node test/run-tests.mjs"
+  },
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard-budgets.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard-budgets/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard-budgets#readme",
+  "files": [
+    "src"
+  ]
+}

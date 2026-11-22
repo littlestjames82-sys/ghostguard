@@ -1,0 +1,36 @@
+{
+  "bin": {
+    "ghostguard-mcp": "./src/proxy.mjs",
+    "ghostguard-mcp-approve": "./src/approve.mjs"
+  },
+  "description": "GhostGuard MCP adapter \u2014 a governed MCP proxy: every upstream tools/call is classified, policy-decided, and recorded before it is forwarded. By Ghost Developer Studio.",
+  "dependencies": {
+    "ghostguard": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "name": "ghostguard-mcp",
+  "private": false,
+  "scripts": {
+    "start": "node src/proxy.mjs",
+    "test": "node test/run-tests.mjs",
+    "verify": "node test/run-tests.mjs"
+  },
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard-mcp/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard-mcp#readme",
+  "files": [
+    "src",
+    "fixture"
+  ]
+}

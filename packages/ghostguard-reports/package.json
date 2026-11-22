@@ -1,0 +1,33 @@
+{
+  "description": "GhostGuard add-on toolset: agent passports (Ed25519-signed identity + tier gate), incident report generator (trail -> self-contained HTML), and the 'Guarded by GhostGuard' badge + redacted public trail summary. By Ghost Developer Studio. Standalone; imports the ghostguard engine dist, never modifies it.",
+  "dependencies": {
+    "ghostguard": "^0.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "name": "ghostguard-reports",
+  "private": false,
+  "scripts": {
+    "demo": "node src/cli.mjs demo",
+    "fixture": "node fixture/make-fixture.mjs",
+    "test": "node test/run-tests.mjs",
+    "verify": "node test/run-tests.mjs"
+  },
+  "type": "module",
+  "version": "0.1.0",
+  "author": "Ghost Developer Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/littlestjames82-sys/ghostguard-reports.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littlestjames82-sys/ghostguard-reports/issues"
+  },
+  "homepage": "https://github.com/littlestjames82-sys/ghostguard-reports#readme",
+  "files": [
+    "src",
+    "fixture"
+  ]
+}

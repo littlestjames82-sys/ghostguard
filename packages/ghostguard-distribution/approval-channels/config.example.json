@@ -1,0 +1,1 @@
+{"channelLabel":"local-stub-example","escalateAfterMs":300000,"format":"generic","timeoutMs":900000,"webhookUrl":"http://127.0.0.1:8799/hook"}

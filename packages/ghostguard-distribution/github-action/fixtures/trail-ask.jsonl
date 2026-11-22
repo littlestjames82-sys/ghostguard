@@ -1,0 +1,1 @@
+{"action_id":"deploy_prod_1","action_payload":{"ref":"main","service":"web"},"actor":"ci-agent","dry_run":false,"handoff_to":null,"initiator":"person","kind":"ops.deploy","permission_class":"DEPLOY","project_id":"demo","reason":"deploys need a human first","rule_id":"deploys-ask","snapshot_id":null,"target":null,"target_ref":null,"verdict":"ask"}
