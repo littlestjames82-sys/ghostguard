@@ -29,8 +29,10 @@ As of Nov 22, 2026, the GhostGuard family lives in this one repository.
 The former standalone repos (ghostguard-mcp, ghostguard-budgets,
 ghostguard-secrets, ghostguard-replay, ghostguard-plan, ghostguard-reports,
 ghostguard-voice, ghostguard-distribution, ghostguard-services,
-policy-packs) are archived on GitHub and point here. Their v0.1.0 releases
-stay attached to those repos.
+policy-packs) are archived on GitHub (GitHub's Public archive banner is
+the pointer; archived repos are read-only, so their descriptions could
+not be updated after archiving). Their v0.1.0 releases stay attached to
+those repos.
 
 ## Notes
 
