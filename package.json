@@ -1,7 +1,7 @@
 {
   "description": "GhostGuard \u2014 record-first gateway, fail-closed policy, approvals and audit for any agent. By Ghost Developer Studio.",
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.6",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   },
